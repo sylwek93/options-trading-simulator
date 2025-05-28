@@ -1,5 +1,5 @@
 import sqlite3
-import pandas as pd
+import polars as pl
 from contextlib import contextmanager
 from config import DB_PATH
 
@@ -44,7 +44,7 @@ class QueryConditions:
         ORDER BY m.date_time
         """
     
-    def execute_query(self, date_range, time_range, additional_conditions=""):
+    def execute_query(self, start_date, end_date, start_time, end_time, additional_conditions=""):
         try:
             if additional_conditions and not additional_conditions.strip():
                 additional_conditions = ""
@@ -53,10 +53,13 @@ class QueryConditions:
                 additional_conditions = f"AND {additional_conditions}"
             
             query = self.base_query.format(additional_conditions)
-            params = [date_range[0], date_range[1], time_range[0], time_range[1]]
+            params = [start_date, end_date, start_time, end_time]
             results = self.db_manager.execute_query(query, params)
             
-            df = pd.DataFrame(results, columns=['date_time', 'spx_price'])
+            df = pl.DataFrame({
+                'date_time': [row[0] for row in results],
+                'spx_price': [row[1] for row in results]
+            })
             return df
         except Exception as e:
             raise Exception(f"Query execution failed: {e}")
@@ -80,7 +83,12 @@ class QueryOptionChain:
             params = [date, time, right, strike]
             results = self.db_manager.execute_query(self.base_query, params)
             
-            df = pd.DataFrame(results, columns=['time', 'strike', 'bid', 'ask'])
+            df = pl.DataFrame({
+                'time': [row[0] for row in results],
+                'strike': [row[1] for row in results],
+                'bid': [row[2] for row in results],
+                'ask': [row[3] for row in results]
+            })
             return df
         except Exception as e:
             raise Exception(f"Query execution failed: {e}")
@@ -91,8 +99,8 @@ conditions_query = QueryConditions(db_manager)
 option_chain_query = QueryOptionChain(db_manager)
 
 
-def query_with_conditions(date_range, time_range, additional_conditions=""):
-    return conditions_query.execute_query(date_range, time_range, additional_conditions)
+def query_with_conditions(start_date, end_date, start_time, end_time, additional_conditions=""):
+    return conditions_query.execute_query(start_date, end_date, start_time, end_time, additional_conditions)
 
 
 def query_option_chain(date, time, right, strike):
