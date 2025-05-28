@@ -1,1 +1,9 @@
 /venv_ots/
+/archive/
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
