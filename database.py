@@ -69,7 +69,7 @@ class QueryOptionChain:
     def __init__(self, db_manager):
         self.db_manager = db_manager
         self.base_query = """
-        SELECT time, strike, bid, ask
+        SELECT time, strike, bid, ask, spx_price
         FROM option_chain
         WHERE date = ?
         AND time >= ?
@@ -87,7 +87,8 @@ class QueryOptionChain:
                 'time': [row[0] for row in results],
                 'strike': [row[1] for row in results],
                 'bid': [row[2] for row in results],
-                'ask': [row[3] for row in results]
+                'ask': [row[3] for row in results],
+                'spx_price': [row[4] for row in results]
             })
             return df
         except Exception as e:
