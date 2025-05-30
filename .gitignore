@@ -1,6 +1,7 @@
 /venv_ots/
 /archive/
 /.claude/
+/results/
 # Python cache files
 __pycache__/
 *.py[cod]

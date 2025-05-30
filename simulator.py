@@ -1,6 +1,7 @@
 import polars as pl
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 from datetime import datetime, timedelta
 from database import query_with_conditions
 from spread import PutCreditSpread, CallCreditSpread
@@ -72,7 +73,7 @@ class Simulator:
         strategies_data = {}
         spx_prices = query_with_conditions(self.start_date, self.end_date, self.trading_start_time, self.trading_end_time, '')
 
-        print(f"Processing {self.total_business_days} trading days")
+        #print(f"Processing {self.total_business_days} trading days")
 
         for strategy in self.strategies:
             strategy_name = strategy['spread_type']
@@ -100,6 +101,7 @@ class Simulator:
             }
 
         for date in self.business_dates:
+            print(f'Processing {date}')
             # Create datetime objects for trading start and end times
             start_time = datetime.strptime(f"{date} {self.trading_start_time}", '%Y-%m-%d %H:%M:%S')
             end_time = datetime.strptime(f"{date} {self.trading_end_time}", '%Y-%m-%d %H:%M:%S')
@@ -214,11 +216,54 @@ class Simulator:
                 # Move to next minute
                 current_time += timedelta(minutes=1)
         
+        # Create results folder and generate filename
+        os.makedirs('results', exist_ok=True)
+        filename_base = self.generate_filename()
+        
+        # Save trades to CSV
+        self.save_trades_csv(filename_base)
+        
         # Return results and run analysis
-        results = self.analyze_results()
+        results = self.analyze_results(filename_base)
         return results
     
-    def analyze_results(self):
+    def generate_filename(self):
+        """Generate descriptive filename based on simulation parameters"""
+        # Get strategy types
+        strategy_types = [s['spread_type'] for s in self.strategies]
+        strategies_str = '_'.join(sorted(set(strategy_types)))
+        
+        # Get date range
+        start_str = self.start_date.replace('-', '')
+        end_str = self.end_date.replace('-', '')
+        
+        # Get key parameters from first strategy (assuming similar params across strategies)
+        if self.strategies:
+            first_strategy = self.strategies[0]
+            width = first_strategy.get('width', 'NA')
+            offset = first_strategy.get('offset', 'NA')
+            tp_level = first_strategy.get('take_profit_level', 'NA')
+            max_pos = first_strategy.get('max_active_positions', 'NA')
+            
+            # Create filename
+            filename = f"{strategies_str}_{start_str}_{end_str}_w{width}_o{offset}_tp{tp_level}_mp{max_pos}"
+        else:
+            filename = f"simulation_{start_str}_{end_str}"
+            
+        return filename
+    
+    def save_trades_csv(self, filename_base):
+        """Save trades DataFrame to CSV with descriptive filename"""
+        if not self.trades.is_empty():
+            # Convert nested list column to semicolon separated string for CSV compatibility
+            csv_safe_trades = self.trades.with_columns(
+                pl.col('strikes').map_elements(lambda x: ";".join(str(strike) for strike in x)).alias('strikes')
+            )
+            csv_path = f'results/{filename_base}_trades.csv'
+            csv_safe_trades.write_csv(csv_path)
+            print(f"Trades saved to: {csv_path}")
+    
+    def analyze_results(self, filename_base=None):
         """Analyze trading results and generate comprehensive statistics"""
         if self.trades.is_empty():
             print("No trades to analyze")
@@ -247,8 +292,8 @@ class Simulator:
             pl.col('exit_time').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').alias('exit_datetime')
         ).sort('exit_datetime')
         
-        cumulative_pnl = completed_trades['pnl'].cumsum()
-        running_max = cumulative_pnl.cummax()
+        cumulative_pnl = completed_trades['pnl'].cum_sum()
+        running_max = cumulative_pnl.cum_max()
         drawdown = running_max - cumulative_pnl
         max_drawdown = drawdown.max()
         
@@ -270,11 +315,11 @@ class Simulator:
         ).sort('date')
         
         # Print results
-        print("\\n" + "="*50)
+        print("\n" + "="*50)
         print("TRADING RESULTS ANALYSIS")
         print("="*50)
         
-        print(f"\\nOVERALL STATISTICS:")
+        print(f"\nOVERALL STATISTICS:")
         print(f"Total Trades: {total_trades}")
         print(f"Total Profit: ${total_pnl:.2f}")
         print(f"Win Rate: {win_rate:.2f}%")
@@ -282,16 +327,16 @@ class Simulator:
         print(f"Sharpe Ratio: {sharpe_ratio:.3f}")
         print(f"Max Drawdown: ${max_drawdown:.2f}")
         
-        print(f"\\nPER-SPREAD STATISTICS:")
+        print(f"\nPER-SPREAD STATISTICS:")
         for row in spread_stats.iter_rows(named=True):
-            print(f"\\n{row['spread_type'].upper()}:")
+            print(f"\n{row['spread_type'].upper()}:")
             print(f"  Number of Trades: {row['num_trades']}")
             print(f"  Total Profit: ${row['total_profit']:.2f}")
             print(f"  Win Rate: {row['win_rate']:.2f}%")
             print(f"  Average PnL: ${row['avg_pnl']:.2f}")
         
         # Visualize daily PnL
-        self.plot_daily_pnl(daily_pnl)
+        self.plot_daily_pnl(daily_pnl, filename_base)
         
         return {
             'overall_stats': {
@@ -307,7 +352,7 @@ class Simulator:
             'trades': completed_trades
         }
     
-    def plot_daily_pnl(self, daily_pnl_df):
+    def plot_daily_pnl(self, daily_pnl_df, filename_base=None):
         """Create visualization of daily PnL"""
         if daily_pnl_df.is_empty():
             print("No daily PnL data to plot")
@@ -315,7 +360,7 @@ class Simulator:
         
         dates = daily_pnl_df['date'].to_list()
         pnl_values = daily_pnl_df['daily_pnl'].to_list()
-        cumulative_pnl = daily_pnl_df['daily_pnl'].cumsum().to_list()
+        cumulative_pnl = daily_pnl_df['daily_pnl'].cum_sum().to_list()
         
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
         
@@ -336,10 +381,17 @@ class Simulator:
         ax2.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plt.savefig('trading_analysis.png', dpi=300, bbox_inches='tight')
+        
+        # Save with descriptive filename
+        if filename_base:
+            chart_path = f'results/{filename_base}_analysis.png'
+        else:
+            chart_path = 'results/trading_analysis.png'
+            
+        plt.savefig(chart_path, dpi=300, bbox_inches='tight')
         plt.show()
         
-        print(f"\\nChart saved as 'trading_analysis.png'")
+        print(f"\nChart saved as '{chart_path}'")
 
 
 
