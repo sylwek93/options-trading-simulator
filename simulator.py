@@ -1,4 +1,6 @@
 import polars as pl
+import matplotlib.pyplot as plt
+import numpy as np
 from datetime import datetime, timedelta
 from database import query_with_conditions
 from spread import PutCreditSpread, CallCreditSpread
@@ -212,14 +214,132 @@ class Simulator:
                 # Move to next minute
                 current_time += timedelta(minutes=1)
         
-        # self.trades summary here
-
-        # Convert nested list column to semicolon separated string before writing to CSV
-        #csv_safe_trades = self.trades.with_columns(
-        #    pl.col('strikes').map_elements(lambda x: ";".join(str(strike) for strike in x)).alias('strikes')
-        #)
-        #csv_safe_trades.write_csv('tests/test_spread.csv')
-        #print(self.trades)
+        # Return results and run analysis
+        results = self.analyze_results()
+        return results
+    
+    def analyze_results(self):
+        """Analyze trading results and generate comprehensive statistics"""
+        if self.trades.is_empty():
+            print("No trades to analyze")
+            return None
+        
+        # Filter completed trades only
+        completed_trades = self.trades.filter(pl.col('current_status') == 'close')
+        
+        if completed_trades.is_empty():
+            print("No completed trades to analyze")
+            return None
+        
+        # Overall Statistics
+        total_trades = completed_trades.height
+        total_pnl = completed_trades['pnl'].sum()
+        winning_trades = completed_trades.filter(pl.col('pnl') > 0).height
+        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+        avg_pnl_per_trade = total_pnl / total_trades if total_trades > 0 else 0
+        
+        # Calculate Sharpe Ratio (assuming risk-free rate of 0 for simplicity)
+        pnl_std = completed_trades['pnl'].std() if completed_trades.height > 1 else 0
+        sharpe_ratio = (avg_pnl_per_trade / pnl_std) if pnl_std > 0 else 0
+        
+        # Calculate Max Drawdown
+        completed_trades = completed_trades.with_columns(
+            pl.col('exit_time').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').alias('exit_datetime')
+        ).sort('exit_datetime')
+        
+        cumulative_pnl = completed_trades['pnl'].cumsum()
+        running_max = cumulative_pnl.cummax()
+        drawdown = running_max - cumulative_pnl
+        max_drawdown = drawdown.max()
+        
+        # Per-spread statistics
+        spread_stats = completed_trades.group_by('spread_type').agg([
+            pl.count().alias('num_trades'),
+            pl.col('pnl').sum().alias('total_profit'),
+            (pl.col('pnl') > 0).sum().alias('winning_trades'),
+            pl.col('pnl').mean().alias('avg_pnl')
+        ]).with_columns(
+            (pl.col('winning_trades') / pl.col('num_trades') * 100).alias('win_rate')
+        )
+        
+        # Daily PnL analysis
+        daily_pnl = completed_trades.with_columns(
+            pl.col('exit_time').str.slice(0, 10).alias('date')
+        ).group_by('date').agg(
+            pl.col('pnl').sum().alias('daily_pnl')
+        ).sort('date')
+        
+        # Print results
+        print("\\n" + "="*50)
+        print("TRADING RESULTS ANALYSIS")
+        print("="*50)
+        
+        print(f"\\nOVERALL STATISTICS:")
+        print(f"Total Trades: {total_trades}")
+        print(f"Total Profit: ${total_pnl:.2f}")
+        print(f"Win Rate: {win_rate:.2f}%")
+        print(f"Average PnL per Trade: ${avg_pnl_per_trade:.2f}")
+        print(f"Sharpe Ratio: {sharpe_ratio:.3f}")
+        print(f"Max Drawdown: ${max_drawdown:.2f}")
+        
+        print(f"\\nPER-SPREAD STATISTICS:")
+        for row in spread_stats.iter_rows(named=True):
+            print(f"\\n{row['spread_type'].upper()}:")
+            print(f"  Number of Trades: {row['num_trades']}")
+            print(f"  Total Profit: ${row['total_profit']:.2f}")
+            print(f"  Win Rate: {row['win_rate']:.2f}%")
+            print(f"  Average PnL: ${row['avg_pnl']:.2f}")
+        
+        # Visualize daily PnL
+        self.plot_daily_pnl(daily_pnl)
+        
+        return {
+            'overall_stats': {
+                'total_trades': total_trades,
+                'total_profit': total_pnl,
+                'win_rate': win_rate,
+                'avg_pnl_per_trade': avg_pnl_per_trade,
+                'sharpe_ratio': sharpe_ratio,
+                'max_drawdown': max_drawdown
+            },
+            'spread_stats': spread_stats,
+            'daily_pnl': daily_pnl,
+            'trades': completed_trades
+        }
+    
+    def plot_daily_pnl(self, daily_pnl_df):
+        """Create visualization of daily PnL"""
+        if daily_pnl_df.is_empty():
+            print("No daily PnL data to plot")
+            return
+        
+        dates = daily_pnl_df['date'].to_list()
+        pnl_values = daily_pnl_df['daily_pnl'].to_list()
+        cumulative_pnl = daily_pnl_df['daily_pnl'].cumsum().to_list()
+        
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+        
+        # Daily PnL
+        colors = ['green' if pnl >= 0 else 'red' for pnl in pnl_values]
+        ax1.bar(dates, pnl_values, color=colors, alpha=0.7)
+        ax1.set_title('Daily PnL')
+        ax1.set_ylabel('PnL ($)')
+        ax1.tick_params(axis='x', rotation=45)
+        ax1.grid(True, alpha=0.3)
+        
+        # Cumulative PnL
+        ax2.plot(dates, cumulative_pnl, 'b-', linewidth=2, marker='o', markersize=4)
+        ax2.set_title('Cumulative PnL')
+        ax2.set_xlabel('Date')
+        ax2.set_ylabel('Cumulative PnL ($)')
+        ax2.tick_params(axis='x', rotation=45)
+        ax2.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig('trading_analysis.png', dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print(f"\\nChart saved as 'trading_analysis.png'")
 
 
 
