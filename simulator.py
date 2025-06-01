@@ -28,15 +28,15 @@ class Simulator:
             'strikes': pl.Series([], dtype=pl.List(pl.Float64)),
             'max_loss': pl.Series([], dtype=pl.Float64),
             'max_profit': pl.Series([], dtype=pl.Float64),
-            'break_even_level': pl.Series([], dtype=pl.Float64),
-            'break_even_time': pl.Series([], dtype=pl.Utf8),
             'entry_time': pl.Series([], dtype=pl.Utf8),
             'entry_price': pl.Series([], dtype=pl.Float64),
             'exit_time': pl.Series([], dtype=pl.Utf8),
             'exit_price': pl.Series([], dtype=pl.Float64),
             'pnl': pl.Series([], dtype=pl.Float64),
             'outcome': pl.Series([], dtype=pl.Utf8),
-            'current_status': pl.Series([], dtype=pl.Utf8)
+            'current_status': pl.Series([], dtype=pl.Utf8),
+            'break_even_level': pl.Series([], dtype=pl.Float64),
+            'break_even_time': pl.Series([], dtype=pl.Utf8)
         })
         
         # Calculate business dates during initialization
@@ -85,6 +85,7 @@ class Simulator:
             offset = strategy['offset']
             stop_loss_type = strategy['stop_loss_type']
             take_profit_level = strategy['take_profit_level']
+            hedge = strategy['hedge']
             
             # Query data for this strategy
             entries_df = query_with_conditions(self.start_date, self.end_date, start_time_window, end_time_window, strategy_conditions)
@@ -97,6 +98,7 @@ class Simulator:
                 'offset': offset,
                 'stop_loss_type': stop_loss_type,
                 'take_profit_level': take_profit_level,
+                'hedge': hedge,
                 'active_positions': 0
             }
 
@@ -162,6 +164,7 @@ class Simulator:
                                     if not new_call.is_empty():
                                         # Check if strikes are already in use
                                         call_strikes = new_call['strikes'].item()
+                                        break_even_time_str = new_call['break_even_time'].item()
                                         strikes_in_use = any(strike in used_call_strikes for strike in call_strikes)
                                         
                                         if not strikes_in_use:
@@ -170,6 +173,22 @@ class Simulator:
                                                 used_call_strikes.add(strike)
                                             self.trades = pl.concat([self.trades, new_call])
 
+                                        if break_even_time_str and strategy_data.get('hedge', '') == 'box':
+                                            break_even_time = datetime.strptime(break_even_time_str, '%Y-%m-%d %H:%M:%S')
+                                            put = PutCreditSpread()
+                                            new_put = put.get_spread_data(current_spx_price, eod_spx_price, current_time, strategy_data, self.slippage, self.commission, call_strikes[1], call_strikes[0])
+
+                                            if not new_put.is_empty():
+                                                # Check if strikes are already in use
+                                                put_strikes = new_put['strikes'].item()
+                                                strikes_in_use = any(strike in used_put_strikes for strike in put_strikes)
+
+                                                if not strikes_in_use:
+                                                    # Add strikes to used set
+                                                    for strike in put_strikes:
+                                                        used_put_strikes.add(strike)
+                                                    self.trades = pl.concat([self.trades, new_put])
+
                                 elif strategy_name == 'put_spread':
                                     put = PutCreditSpread()
                                     new_put = put.get_spread_data(current_spx_price, eod_spx_price, current_time, strategy_data, self.slippage, self.commission)
@@ -177,6 +196,7 @@ class Simulator:
                                     if not new_put.is_empty():
                                         # Check if strikes are already in use
                                         put_strikes = new_put['strikes'].item()
+                                        break_even_time_str = new_put['break_even_time'].item()
                                         strikes_in_use = any(strike in used_put_strikes for strike in put_strikes)
                                         
                                         if not strikes_in_use:
@@ -184,6 +204,22 @@ class Simulator:
                                             for strike in put_strikes:
                                                 used_put_strikes.add(strike)
                                             self.trades = pl.concat([self.trades, new_put])
+
+                                        if break_even_time_str and strategy_data.get('hedge', '') == 'box':
+                                            break_even_time = datetime.strptime(break_even_time_str, '%Y-%m-%d %H:%M:%S')
+                                            call = CallCreditSpread()
+                                            new_call = call.get_spread_data(current_spx_price, eod_spx_price, break_even_time, strategy_data, self.slippage, self.commission, put_strikes[1], put_strikes[0])
+
+                                            if not new_call.is_empty():
+                                                # Check if strikes are already in use
+                                                call_strikes = new_call['strikes'].item()
+                                                strikes_in_use = any(strike in used_call_strikes for strike in call_strikes)
+
+                                                if not strikes_in_use:
+                                                    # Add strikes to used set
+                                                    for strike in call_strikes:
+                                                        used_call_strikes.add(strike)
+                                                    self.trades = pl.concat([self.trades, new_call])
 
                     ################################################################################
                     # UPDATE ACTIVE TRADES STATUS
@@ -223,45 +259,55 @@ class Simulator:
         # Save trades to CSV
         self.save_trades_csv(filename_base)
         
+        # Save parameters to JSON
+        self.save_parameters_json(filename_base)
+        
         # Return results and run analysis
         results = self.analyze_results(filename_base)
         return results
     
     def generate_filename(self):
-        """Generate descriptive filename based on simulation parameters"""
-        # Get strategy types
-        strategy_types = [s['spread_type'] for s in self.strategies]
-        strategies_str = '_'.join(sorted(set(strategy_types)))
+        """Generate timestamp-based filename"""
+        from datetime import datetime
         
-        # Get date range
-        start_str = self.start_date.replace('-', '')
-        end_str = self.end_date.replace('-', '')
+        # Generate timestamp with milliseconds
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # Remove last 3 digits to get milliseconds
         
-        # Get key parameters from first strategy (assuming similar params across strategies)
-        if self.strategies:
-            first_strategy = self.strategies[0]
-            width = first_strategy.get('width', 'NA')
-            offset = first_strategy.get('offset', 'NA')
-            tp_level = first_strategy.get('take_profit_level', 'NA')
-            max_pos = first_strategy.get('max_active_positions', 'NA')
-            
-            # Create filename
-            filename = f"{strategies_str}_{start_str}_{end_str}_w{width}_o{offset}_tp{tp_level}_mp{max_pos}"
-        else:
-            filename = f"simulation_{start_str}_{end_str}"
-            
-        return filename
+        return timestamp
     
     def save_trades_csv(self, filename_base):
         """Save trades DataFrame to CSV with descriptive filename"""
         if not self.trades.is_empty():
             # Convert nested list column to semicolon separated string for CSV compatibility
             csv_safe_trades = self.trades.with_columns(
-                pl.col('strikes').map_elements(lambda x: ";".join(str(strike) for strike in x)).alias('strikes')
+                pl.col('strikes').map_elements(lambda x: ";".join(str(strike) for strike in x), return_dtype=pl.Utf8).alias('strikes')
             )
             csv_path = f'results/{filename_base}_trades.csv'
             csv_safe_trades.write_csv(csv_path)
             print(f"Trades saved to: {csv_path}")
+    
+    def save_parameters_json(self, filename_base):
+        """Save simulation parameters to JSON file"""
+        import json
+        
+        parameters = {
+            'simulation_config': {
+                'start_date': self.start_date,
+                'end_date': self.end_date,
+                'starting_balance': self.starting_balance,
+                'commission': self.commission,
+                'slippage': self.slippage,
+                'trading_start_time': self.trading_start_time,
+                'trading_end_time': self.trading_end_time
+            },
+            'strategies': self.strategies,
+            'timestamp': filename_base
+        }
+        
+        json_path = f'results/{filename_base}_parameters.json'
+        with open(json_path, 'w') as f:
+            json.dump(parameters, f, indent=2)
+        print(f"Parameters saved to: {json_path}")
     
     def analyze_results(self, filename_base=None):
         """Analyze trading results and generate comprehensive statistics"""

@@ -34,6 +34,10 @@ class PutCreditSpread:
         return sell_leg, buy_leg
     
     def _calc_rounded_price(self, buy_ask, buy_bid, sell_ask, sell_bid):
+
+        # Check if all prices are 0
+        if buy_ask == 0 and buy_bid == 0 and sell_ask == 0 and sell_bid == 0:
+            return -self.width
   
         buy_ask = max(0, buy_ask)
         buy_bid = max(0, buy_bid)
@@ -41,9 +45,6 @@ class PutCreditSpread:
         sell_bid = max(0, sell_bid)
 
         spread_price = round((round(((buy_ask - sell_ask) + (buy_bid - sell_bid)) / 2 / 0.05) * 0.05) + self.slippage, 2)
-
-        if spread_price > 0:
-            spread_price = - self.width
         
         return spread_price
     
@@ -226,18 +227,18 @@ class PutCreditSpread:
             'strikes': pl.Series([[float(strike) for strike in self.strikes]], dtype=pl.List(pl.Float64)),
             'max_loss': pl.Series([self.max_loss], dtype=pl.Float64),
             'max_profit': pl.Series([self.max_profit], dtype=pl.Float64),
-            'break_even_level': pl.Series([self.break_even_level], dtype=pl.Float64),
-            'break_even_time': pl.Series([self.break_even_time if self.break_even_time else None], dtype=pl.Utf8),
             'entry_time': pl.Series([self.entry_time_str], dtype=pl.Utf8),
             'entry_price': pl.Series([self.entry_price], dtype=pl.Float64),
             'exit_time': pl.Series([self.exit_time], dtype=pl.Utf8),
             'exit_price': pl.Series([self.exit_price], dtype=pl.Float64),
             'pnl': pl.Series([self.pnl], dtype=pl.Float64),
             'outcome': pl.Series([self.outcome], dtype=pl.Utf8),
-            'current_status': pl.Series([self.current_status], dtype=pl.Utf8)
+            'current_status': pl.Series([self.current_status], dtype=pl.Utf8),
+            'break_even_level': pl.Series([self.break_even_level], dtype=pl.Float64),
+            'break_even_time': pl.Series([self.break_even_time if self.break_even_time else None], dtype=pl.Utf8)
         })
         
-        #spread_data.write_csv('tests/test.csv')
+        spread_data.write_csv('tests/test.csv')
         return return_df
 
         
@@ -274,16 +275,15 @@ class CallCreditSpread:
 
     def _calc_rounded_price(self, buy_ask, buy_bid, sell_ask, sell_bid):
 
+        if buy_ask == 0 and buy_bid == 0 and sell_ask == 0 and sell_bid == 0:
+            return -self.width
+
         buy_ask = max(0, buy_ask)
         buy_bid = max(0, buy_bid)
         sell_ask = max(0, sell_ask)
         sell_bid = max(0, sell_bid)
 
-        spread_price = round((round(
-            ((buy_ask - sell_ask) + (buy_bid - sell_bid)) / 2 / 0.05) * 0.05) + self.slippage, 2)
-
-        if spread_price > 0:
-            spread_price = - self.width
+        spread_price = round((round(((buy_ask - sell_ask) + (buy_bid - sell_bid)) / 2 / 0.05) * 0.05) + self.slippage, 2)
 
         return spread_price
 
@@ -463,15 +463,15 @@ class CallCreditSpread:
             'strikes': pl.Series([[float(strike) for strike in self.strikes]], dtype=pl.List(pl.Float64)),
             'max_loss': pl.Series([self.max_loss], dtype=pl.Float64),
             'max_profit': pl.Series([self.max_profit], dtype=pl.Float64),
-            'break_even_level': pl.Series([self.break_even_level], dtype=pl.Float64),
-            'break_even_time': pl.Series([self.break_even_time if self.break_even_time else None], dtype=pl.Utf8),
             'entry_time': pl.Series([self.entry_time_str], dtype=pl.Utf8),
             'entry_price': pl.Series([self.entry_price], dtype=pl.Float64),
             'exit_time': pl.Series([self.exit_time], dtype=pl.Utf8),
             'exit_price': pl.Series([self.exit_price], dtype=pl.Float64),
             'pnl': pl.Series([self.pnl], dtype=pl.Float64),
             'outcome': pl.Series([self.outcome], dtype=pl.Utf8),
-            'current_status': pl.Series([self.current_status], dtype=pl.Utf8)
+            'current_status': pl.Series([self.current_status], dtype=pl.Utf8),
+            'break_even_level': pl.Series([self.break_even_level], dtype=pl.Float64),
+            'break_even_time': pl.Series([self.break_even_time if self.break_even_time else None], dtype=pl.Utf8)
         })
 
         #spread_data.write_csv('tests/test.csv')
@@ -479,21 +479,32 @@ class CallCreditSpread:
         
 
 
-'''start_time = datetime.strptime(f"2025-05-23 15:35:00", '%Y-%m-%d %H:%M:%S')
+'''start_time = datetime.strptime(f"2025-05-29 17:31:00", '%Y-%m-%d %H:%M:%S')
 
 strategies_data = {
     'entries': "",
     'max_active_positions': 1,
-    'width': 5,
+    'width': 10,
     'offset': -10,
     'stop_loss_type': 'expire',
-    'take_profit_level': 0.01,
+    'take_profit_level': 0.1,
     'active_positions': 0
 }
 
-p = CallCreditSpread()
-p_data = p.get_spread_data(5785.83, 5800, start_time,
-                           strategies_data, 0.1, 1.5)
-       
-print(p_data)'''
+right='p'
 
+sell_leg = 5905
+buy_leg = 5895
+
+spx_price = 5914.54
+eod_spx_price = 5908.73
+
+if right == 'c':
+    c = CallCreditSpread()
+    c_data = c.get_spread_data(spx_price, eod_spx_price, start_time, strategies_data, 0.1, 1.5, sell_leg, buy_leg)
+    print(c_data)
+
+if right == 'p':
+    p = PutCreditSpread()
+    p_data = p.get_spread_data(spx_price, eod_spx_price, start_time, strategies_data, 0.1, 1.5, sell_leg, buy_leg)
+    print(p_data)'''

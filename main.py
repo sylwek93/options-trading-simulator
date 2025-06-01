@@ -123,6 +123,12 @@ def get_spread_parameters(spread_type):
         error_message="Please enter a positive integer."
     )
 
+    hedge = get_validated_input(
+        "Enter hedge (leave blank or 'box'): ",
+        allowed_values=["", "box"],
+        default=""
+    )
+
     print("\nEnter market conditions (examples):")
     print("\nAvailable metrics:")
     print("Leave blank for no conditions, or enter custom SQL-like conditions")
@@ -137,7 +143,8 @@ def get_spread_parameters(spread_type):
         'offset': offset,
         'stop_loss_type': stop_loss_type,
         'take_profit_level': take_profit_level,
-        'max_active_positions': max_active_positions
+        'max_active_positions': max_active_positions,
+        'hedge': hedge
     }
 
 
