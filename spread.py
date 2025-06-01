@@ -62,8 +62,7 @@ class PutCreditSpread:
     def _hit_take_profit_level(self, spread_price):
         return spread_price > round(self.entry_price * self.take_profit_level, 1)
     
-    
-    def get_spread_data(self, spx_price, eod_spx_price, current_time, strategy_data, slippage, commission):
+    def get_spread_data(self, spx_price, eod_spx_price, current_time, strategy_data, slippage, commission, sell_leg=None, buy_leg=None):
 
         self.slippage = slippage
         self.commission = commission
@@ -76,7 +75,12 @@ class PutCreditSpread:
         self.stop_loss_type = strategy_data['stop_loss_type']
         self.take_profit_level = strategy_data['take_profit_level']
 
-        sell_leg, buy_leg = self._get_spread_strikes()
+        if sell_leg is None and buy_leg is None:
+            sell_leg, buy_leg = self._get_spread_strikes()
+        else:
+            sell_leg = sell_leg
+            buy_leg = buy_leg
+
         self.strikes = [sell_leg, buy_leg]
 
         sell_leg_data = query_option_chain(self.entry_date, self.entry_time, 'P', sell_leg)
@@ -194,6 +198,8 @@ class PutCreditSpread:
                 self.outcome = 'expire'
                 self.exit_price = -self.width
 
+        if self.break_even_time:
+            self.break_even_time = f"{self.entry_date} {self.break_even_time}"
 
         exit_time_str = f"{self.entry_date} {self.exit_time}"
         self.exit_time = exit_time_str
@@ -296,7 +302,7 @@ class CallCreditSpread:
     def _hit_take_profit_level(self, spread_price):
         return spread_price > round(self.entry_price * self.take_profit_level, 1)
 
-    def get_spread_data(self, spx_price, eod_spx_price, current_time, strategy_data, slippage, commission):
+    def get_spread_data(self, spx_price, eod_spx_price, current_time, strategy_data, slippage, commission, sell_leg=None, buy_leg=None):
 
         self.slippage = slippage
         self.commission = commission
@@ -309,7 +315,12 @@ class CallCreditSpread:
         self.stop_loss_type = strategy_data['stop_loss_type']
         self.take_profit_level = strategy_data['take_profit_level']
 
-        sell_leg, buy_leg = self._get_spread_strikes()
+        if sell_leg is None and buy_leg is None:
+            sell_leg, buy_leg = self._get_spread_strikes()
+        else:
+            sell_leg = sell_leg
+            buy_leg = buy_leg
+
         self.strikes = [sell_leg, buy_leg]
 
         sell_leg_data = query_option_chain(self.entry_date, self.entry_time, 'C', sell_leg)
@@ -425,6 +436,9 @@ class CallCreditSpread:
                 self.exit_time = '22:00:00'
                 self.outcome = 'expire'
                 self.exit_price = -self.width
+
+        if self.break_even_time:
+            self.break_even_time = f"{self.entry_date} {self.break_even_time}"
 
         exit_time_str = f"{self.entry_date} {self.exit_time}"
         self.exit_time = exit_time_str
