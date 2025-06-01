@@ -124,8 +124,8 @@ def get_spread_parameters(spread_type):
     )
 
     hedge = get_validated_input(
-        "Enter hedge (leave blank or 'box'): ",
-        allowed_values=["", "box"],
+        "Enter hedge (blank, 'box', 'time_box'): ",
+        allowed_values=["", "box", "time_box"],
         default=""
     )
 

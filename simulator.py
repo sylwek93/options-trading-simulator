@@ -99,7 +99,9 @@ class Simulator:
                 'stop_loss_type': stop_loss_type,
                 'take_profit_level': take_profit_level,
                 'hedge': hedge,
-                'active_positions': 0
+                'active_positions': 0,
+                'start_time_window': start_time_window,
+                'end_time_window': end_time_window
             }
 
         for date in self.business_dates:
@@ -165,6 +167,7 @@ class Simulator:
                                         # Check if strikes are already in use
                                         call_strikes = new_call['strikes'].item()
                                         break_even_time_str = new_call['break_even_time'].item()
+                                        call_exit_time = datetime.strptime(new_call['exit_time'].item(), '%Y-%m-%d %H:%M:%S')
                                         strikes_in_use = any(strike in used_call_strikes for strike in call_strikes)
                                         
                                         if not strikes_in_use:
@@ -173,10 +176,21 @@ class Simulator:
                                                 used_call_strikes.add(strike)
                                             self.trades = pl.concat([self.trades, new_call])
 
-                                        if break_even_time_str and strategy_data.get('hedge', '') == 'box':
-                                            break_even_time = datetime.strptime(break_even_time_str, '%Y-%m-%d %H:%M:%S')
+
+                                        if strategy_data.get('hedge', '') == 'box' and break_even_time_str:
+                                            entry_time = datetime.strptime(break_even_time_str, '%Y-%m-%d %H:%M:%S')
+                                        elif strategy_data.get('hedge', '') == 'time_box':
+                                            entry_time = datetime.strptime(f"{date} {strategy_data.get('end_time_window', '')}:00", '%Y-%m-%d %H:%M:%S')
+
+                                            if call_exit_time < entry_time:
+                                                entry_time = None
+                                        else:
+                                            entry_time = None
+
+                                        
+                                        if entry_time:
                                             put = PutCreditSpread()
-                                            new_put = put.get_spread_data(current_spx_price, eod_spx_price, current_time, strategy_data, self.slippage, self.commission, call_strikes[1], call_strikes[0])
+                                            new_put = put.get_spread_data(current_spx_price, eod_spx_price, entry_time, strategy_data, self.slippage, self.commission, call_strikes[1], call_strikes[0])
 
                                             if not new_put.is_empty():
                                                 # Check if strikes are already in use
@@ -197,6 +211,7 @@ class Simulator:
                                         # Check if strikes are already in use
                                         put_strikes = new_put['strikes'].item()
                                         break_even_time_str = new_put['break_even_time'].item()
+                                        put_exit_time = datetime.strptime(new_put['exit_time'].item(), '%Y-%m-%d %H:%M:%S')
                                         strikes_in_use = any(strike in used_put_strikes for strike in put_strikes)
                                         
                                         if not strikes_in_use:
@@ -205,10 +220,21 @@ class Simulator:
                                                 used_put_strikes.add(strike)
                                             self.trades = pl.concat([self.trades, new_put])
 
-                                        if break_even_time_str and strategy_data.get('hedge', '') == 'box':
-                                            break_even_time = datetime.strptime(break_even_time_str, '%Y-%m-%d %H:%M:%S')
+
+                                        if strategy_data.get('hedge', '') == 'box' and break_even_time_str:
+                                            entry_time = datetime.strptime(break_even_time_str, '%Y-%m-%d %H:%M:%S')
+                                        elif strategy_data.get('hedge', '') == 'time_box':
+                                            entry_time = datetime.strptime(f"{date} {strategy_data.get('end_time_window', '')}:00", '%Y-%m-%d %H:%M:%S')
+
+                                            if put_exit_time < entry_time:
+                                                entry_time = None
+                                        else:
+                                            entry_time = None
+                                            
+
+                                        if entry_time:
                                             call = CallCreditSpread()
-                                            new_call = call.get_spread_data(current_spx_price, eod_spx_price, break_even_time, strategy_data, self.slippage, self.commission, put_strikes[1], put_strikes[0])
+                                            new_call = call.get_spread_data(current_spx_price, eod_spx_price, entry_time, strategy_data, self.slippage, self.commission, put_strikes[1], put_strikes[0])
 
                                             if not new_call.is_empty():
                                                 # Check if strikes are already in use
@@ -259,11 +285,12 @@ class Simulator:
         # Save trades to CSV
         self.save_trades_csv(filename_base)
         
-        # Save parameters to JSON
-        self.save_parameters_json(filename_base)
-        
-        # Return results and run analysis
+        # Run analysis and get results
         results = self.analyze_results(filename_base)
+        
+        # Save parameters and results to JSON
+        self.save_parameters_json(filename_base, results)
+        
         return results
     
     def generate_filename(self):
@@ -286,8 +313,8 @@ class Simulator:
             csv_safe_trades.write_csv(csv_path)
             print(f"Trades saved to: {csv_path}")
     
-    def save_parameters_json(self, filename_base):
-        """Save simulation parameters to JSON file"""
+    def save_parameters_json(self, filename_base, results=None):
+        """Save simulation parameters and results to JSON file"""
         import json
         
         parameters = {
@@ -303,6 +330,37 @@ class Simulator:
             'strategies': self.strategies,
             'timestamp': filename_base
         }
+        
+        # Add results summary if provided
+        if results:
+            # Convert spread_stats and daily_pnl DataFrames to dictionaries for JSON serialization
+            spread_stats_dict = results['spread_stats'].to_dicts() if 'spread_stats' in results else []
+            daily_pnl_dict = results['daily_pnl'].to_dicts() if 'daily_pnl' in results else []
+            
+            # Round numeric values to 2 decimal places
+            def round_numeric_values(data):
+                if isinstance(data, dict):
+                    return {k: round_numeric_values(v) for k, v in data.items()}
+                elif isinstance(data, list):
+                    return [round_numeric_values(item) for item in data]
+                elif isinstance(data, (int, float)) and not isinstance(data, bool):
+                    return round(float(data), 2)
+                else:
+                    return data
+            
+            # Process overall stats (max drawdown percentage already calculated correctly)
+            overall_stats = results.get('overall_stats', {}).copy()
+            
+            # Round all numeric values
+            overall_stats_rounded = round_numeric_values(overall_stats)
+            spread_stats_rounded = round_numeric_values(spread_stats_dict)
+            daily_pnl_rounded = round_numeric_values(daily_pnl_dict)
+            
+            parameters['results_summary'] = {
+                'overall_stats': overall_stats_rounded,
+                'spread_stats': spread_stats_rounded,
+                'daily_pnl': daily_pnl_rounded
+            }
         
         json_path = f'results/{filename_base}_parameters.json'
         with open(json_path, 'w') as f:
@@ -333,15 +391,25 @@ class Simulator:
         pnl_std = completed_trades['pnl'].std() if completed_trades.height > 1 else 0
         sharpe_ratio = (avg_pnl_per_trade / pnl_std) if pnl_std > 0 else 0
         
-        # Calculate Max Drawdown
+        # Calculate Max Drawdown (peak-to-trough)
         completed_trades = completed_trades.with_columns(
             pl.col('exit_time').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').alias('exit_datetime')
         ).sort('exit_datetime')
         
+        # Calculate cumulative account balance (starting balance + cumulative PnL)
         cumulative_pnl = completed_trades['pnl'].cum_sum()
-        running_max = cumulative_pnl.cum_max()
-        drawdown = running_max - cumulative_pnl
-        max_drawdown = drawdown.max()
+        account_balance = self.starting_balance + cumulative_pnl
+        
+        # Calculate running peak (highest account balance so far)
+        running_peak = account_balance.cum_max()
+        
+        # Calculate drawdown from peak to current balance
+        drawdown_pct = ((running_peak - account_balance) / running_peak * 100)
+        drawdown_amount = running_peak - account_balance
+        
+        # Get maximum drawdown values
+        max_drawdown = drawdown_amount.max()
+        max_drawdown_pct = drawdown_pct.max()
         
         # Per-spread statistics
         spread_stats = completed_trades.group_by('spread_type').agg([
@@ -371,7 +439,7 @@ class Simulator:
         print(f"Win Rate: {win_rate:.2f}%")
         print(f"Average PnL per Trade: ${avg_pnl_per_trade:.2f}")
         print(f"Sharpe Ratio: {sharpe_ratio:.3f}")
-        print(f"Max Drawdown: ${max_drawdown:.2f}")
+        print(f"Max Drawdown: ${max_drawdown:.2f} ({max_drawdown_pct:.2f}%)")
         
         print(f"\nPER-SPREAD STATISTICS:")
         for row in spread_stats.iter_rows(named=True):
@@ -391,7 +459,8 @@ class Simulator:
                 'win_rate': win_rate,
                 'avg_pnl_per_trade': avg_pnl_per_trade,
                 'sharpe_ratio': sharpe_ratio,
-                'max_drawdown': max_drawdown
+                'max_drawdown': max_drawdown,
+                'max_drawdown_percentage': max_drawdown_pct
             },
             'spread_stats': spread_stats,
             'daily_pnl': daily_pnl,

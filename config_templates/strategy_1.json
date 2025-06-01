@@ -1,0 +1,33 @@
+{
+  "simulation_config": {
+    "start_date": "2025-05-01",
+    "end_date": "2025-05-31",
+    "starting_balance": 2500
+  },
+  "strategies": [
+    {
+      "spread_type": "call_spread",
+      "conditions": "m.ma3_close_trend = 'down' AND m.williams_r_value > -20",
+      "start_time_window": "15:31",
+      "end_time_window": "20:30",
+      "width": 5,
+      "offset": -10,
+      "stop_loss_type": "expire",
+      "take_profit_level": 0.1,
+      "max_active_positions": 1,
+      "hedge": "time_box"
+    },
+    {
+      "spread_type": "put_spread",
+      "conditions": "m.ma3_close_trend = 'up' AND m.williams_r_value < -80",
+      "start_time_window": "15:31",
+      "end_time_window": "20:30",
+      "width": 5,
+      "offset": -10,
+      "stop_loss_type": "expire",
+      "take_profit_level": 0.1,
+      "max_active_positions": 1,
+      "hedge": "time_box"
+    }
+  ]
+}
