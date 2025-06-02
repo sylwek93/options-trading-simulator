@@ -7,27 +7,27 @@
   "strategies": [
     {
       "spread_type": "call_spread",
-      "conditions": "m.ma3_close_trend = 'down' AND m.williams_r_value > -20",
-      "start_time_window": "15:31",
-      "end_time_window": "20:30",
+      "conditions": "m.williams_r_value < -30",
+      "start_time_window": "16:25",
+      "end_time_window": "21:15",
       "width": 5,
-      "offset": -10,
+      "offset": -5,
       "stop_loss_type": "expire",
-      "take_profit_level": 0.1,
-      "max_active_positions": 1,
-      "hedge": "time_box"
+      "take_profit_level": 0.25,
+      "max_active_positions": 3,
+      "hedge": ""
     },
     {
       "spread_type": "put_spread",
-      "conditions": "m.ma3_close_trend = 'up' AND m.williams_r_value < -80",
-      "start_time_window": "15:31",
-      "end_time_window": "20:30",
+      "conditions": "m.williams_r_value > -70",
+      "start_time_window": "16:25",
+      "end_time_window": "21:15",
       "width": 5,
-      "offset": -10,
+      "offset": -5,
       "stop_loss_type": "expire",
-      "take_profit_level": 0.1,
-      "max_active_positions": 1,
-      "hedge": "time_box"
+      "take_profit_level": 0.25,
+      "max_active_positions": 3,
+      "hedge": ""
     }
   ]
 }

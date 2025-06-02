@@ -36,7 +36,8 @@ class Simulator:
             'outcome': pl.Series([], dtype=pl.Utf8),
             'current_status': pl.Series([], dtype=pl.Utf8),
             'break_even_level': pl.Series([], dtype=pl.Float64),
-            'break_even_time': pl.Series([], dtype=pl.Utf8)
+            'break_even_time': pl.Series([], dtype=pl.Utf8),
+            'break_even_times': pl.Series([], dtype=pl.List(pl.Utf8))
         })
         
         # Calculate business dates during initialization
@@ -163,11 +164,13 @@ class Simulator:
                                     call = CallCreditSpread()
                                     new_call = call.get_spread_data(current_spx_price, eod_spx_price, current_time, strategy_data, self.slippage, self.commission)
 
-                                    if not new_call.is_empty():
+                                    if new_call is not None and not new_call.is_empty():
                                         # Check if strikes are already in use
                                         call_strikes = new_call['strikes'].item()
                                         break_even_time_str = new_call['break_even_time'].item()
                                         call_exit_time = datetime.strptime(new_call['exit_time'].item(), '%Y-%m-%d %H:%M:%S')
+                                        break_even_times = new_call['break_even_times'].item()
+                                        
                                         strikes_in_use = any(strike in used_call_strikes for strike in call_strikes)
                                         
                                         if not strikes_in_use:
@@ -179,8 +182,19 @@ class Simulator:
 
                                         if strategy_data.get('hedge', '') == 'box' and break_even_time_str:
                                             entry_time = datetime.strptime(break_even_time_str, '%Y-%m-%d %H:%M:%S')
-                                        elif strategy_data.get('hedge', '') == 'time_box':
+
+                                            if call_exit_time < entry_time:
+                                                entry_time = None
+
+                                        elif strategy_data.get('hedge', '') == 'time_box' and break_even_times is not None and len(break_even_times) > 0:
                                             entry_time = datetime.strptime(f"{date} {strategy_data.get('end_time_window', '')}:00", '%Y-%m-%d %H:%M:%S')
+                                            
+                                            for bet in break_even_times:
+                                                break_even_time = datetime.strptime(bet, '%Y-%m-%d %H:%M:%S')
+
+                                                if break_even_time >= entry_time:
+                                                    entry_time = break_even_time
+                                                    break
 
                                             if call_exit_time < entry_time:
                                                 entry_time = None
@@ -207,11 +221,13 @@ class Simulator:
                                     put = PutCreditSpread()
                                     new_put = put.get_spread_data(current_spx_price, eod_spx_price, current_time, strategy_data, self.slippage, self.commission)
 
-                                    if not new_put.is_empty():
+                                    if new_put is not None and not new_put.is_empty():
                                         # Check if strikes are already in use
                                         put_strikes = new_put['strikes'].item()
                                         break_even_time_str = new_put['break_even_time'].item()
                                         put_exit_time = datetime.strptime(new_put['exit_time'].item(), '%Y-%m-%d %H:%M:%S')
+                                        break_even_times = new_put['break_even_times'].item()
+
                                         strikes_in_use = any(strike in used_put_strikes for strike in put_strikes)
                                         
                                         if not strikes_in_use:
@@ -223,8 +239,19 @@ class Simulator:
 
                                         if strategy_data.get('hedge', '') == 'box' and break_even_time_str:
                                             entry_time = datetime.strptime(break_even_time_str, '%Y-%m-%d %H:%M:%S')
-                                        elif strategy_data.get('hedge', '') == 'time_box':
+
+                                            if call_exit_time < entry_time:
+                                                entry_time = None
+
+                                        elif strategy_data.get('hedge', '') == 'time_box' and break_even_times is not None and len(break_even_times) > 0:
                                             entry_time = datetime.strptime(f"{date} {strategy_data.get('end_time_window', '')}:00", '%Y-%m-%d %H:%M:%S')
+
+                                            for bet in break_even_times:
+                                                break_even_time = datetime.strptime(bet, '%Y-%m-%d %H:%M:%S')
+
+                                                if break_even_time >= entry_time:
+                                                    entry_time = break_even_time
+                                                    break
 
                                             if put_exit_time < entry_time:
                                                 entry_time = None
@@ -305,10 +332,14 @@ class Simulator:
     def save_trades_csv(self, filename_base):
         """Save trades DataFrame to CSV with descriptive filename"""
         if not self.trades.is_empty():
-            # Convert nested list column to semicolon separated string for CSV compatibility
-            csv_safe_trades = self.trades.with_columns(
-                pl.col('strikes').map_elements(lambda x: ";".join(str(strike) for strike in x), return_dtype=pl.Utf8).alias('strikes')
-            )
+            # Convert nested list columns to semicolon separated strings for CSV compatibility
+            csv_safe_trades = self.trades.with_columns([
+                pl.col('strikes').map_elements(lambda x: ";".join(str(strike) for strike in x), return_dtype=pl.Utf8).alias('strikes'),
+                pl.col('break_even_times').map_elements(
+                    lambda x: ";".join(x) if x is not None else "", 
+                    return_dtype=pl.Utf8
+                ).alias('break_even_times')
+            ])
             csv_path = f'results/{filename_base}_trades.csv'
             csv_safe_trades.write_csv(csv_path)
             print(f"Trades saved to: {csv_path}")

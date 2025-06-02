@@ -36,7 +36,10 @@ class PutCreditSpread:
     def _calc_rounded_price(self, buy_ask, buy_bid, sell_ask, sell_bid):
 
         # Check if all prices are 0
-        if buy_ask == 0 and buy_bid == 0 and sell_ask == 0 and sell_bid == 0:
+        if buy_ask == 0 and buy_bid == 0: 
+            return -self.width
+        
+        if sell_ask == 0 and sell_bid == 0:
             return -self.width
   
         buy_ask = max(0, buy_ask)
@@ -45,7 +48,7 @@ class PutCreditSpread:
         sell_bid = max(0, sell_bid)
 
         spread_price = round((round(((buy_ask - sell_ask) + (buy_bid - sell_bid)) / 2 / 0.05) * 0.05) + self.slippage, 2)
-        
+
         return spread_price
     
     def _calculate_max_loss(self, entry_price, sell_strike, buy_strike):
@@ -184,6 +187,12 @@ class PutCreditSpread:
                     self.exit_time = spread_data.select('time').row(-1)[0]
                     self.outcome = 'expire'
             
+            # Get all times when is_break_even is True
+            break_even_times = []
+            if spread_data.filter(pl.col('is_break_even') == True).height > 0:
+                break_even_times = [
+                    f"{self.entry_date} {t}" for t in spread_data.filter(pl.col('is_break_even') == True).select('time').to_series().to_list()
+                ]
             
             self.exit_price = spread_data.filter(pl.col('time') == self.exit_time).select('spread_price').row(0)[0]
 
@@ -235,7 +244,8 @@ class PutCreditSpread:
                 'outcome': pl.Series([self.outcome], dtype=pl.Utf8),
                 'current_status': pl.Series([self.current_status], dtype=pl.Utf8),
                 'break_even_level': pl.Series([self.break_even_level], dtype=pl.Float64),
-                'break_even_time': pl.Series([self.break_even_time if self.break_even_time else None], dtype=pl.Utf8)
+                'break_even_time': pl.Series([self.break_even_time if self.break_even_time else None], dtype=pl.Utf8),
+                'break_even_times': pl.Series([break_even_times if break_even_times else None], dtype=pl.List(pl.Utf8))
             })
             
             #spread_data.write_csv('tests/test.csv')
@@ -275,7 +285,8 @@ class PutCreditSpread:
                 'outcome': pl.Series([], dtype=pl.Utf8),
                 'current_status': pl.Series([], dtype=pl.Utf8),
                 'break_even_level': pl.Series([], dtype=pl.Float64),
-                'break_even_time': pl.Series([], dtype=pl.Utf8)
+                'break_even_time': pl.Series([], dtype=pl.Utf8),
+                'break_even_times': pl.Series([], dtype=pl.List(pl.Utf8))
             })
         
 class CallCreditSpread:
@@ -460,6 +471,13 @@ class CallCreditSpread:
                     self.exit_time = spread_data.select('time').row(-1)[0]
                     self.outcome = 'expire'
 
+            # Get all times when is_break_even is True
+            break_even_times = []
+            if spread_data.filter(pl.col('is_break_even') == True).height > 0:
+                break_even_times = [
+                    f"{self.entry_date} {t}" for t in spread_data.filter(pl.col('is_break_even') == True).select('time').to_series().to_list()
+                ]
+                
             self.exit_price = spread_data.filter(pl.col('time') == self.exit_time).select('spread_price').row(0)[0]
 
             validation_time = datetime.strptime(spread_data.select('time').row(-1)[0], '%H:%M:%S')
@@ -508,7 +526,8 @@ class CallCreditSpread:
                 'outcome': pl.Series([self.outcome], dtype=pl.Utf8),
                 'current_status': pl.Series([self.current_status], dtype=pl.Utf8),
                 'break_even_level': pl.Series([self.break_even_level], dtype=pl.Float64),
-                'break_even_time': pl.Series([self.break_even_time if self.break_even_time else None], dtype=pl.Utf8)
+                'break_even_time': pl.Series([self.break_even_time if self.break_even_time else None], dtype=pl.Utf8),
+                'break_even_times': pl.Series([break_even_times if break_even_times else None], dtype=pl.List(pl.Utf8))
             })
 
             #spread_data.write_csv('tests/test.csv')
@@ -548,19 +567,20 @@ class CallCreditSpread:
                 'outcome': pl.Series([], dtype=pl.Utf8),
                 'current_status': pl.Series([], dtype=pl.Utf8),
                 'break_even_level': pl.Series([], dtype=pl.Float64),
-                'break_even_time': pl.Series([], dtype=pl.Utf8)
+                'break_even_time': pl.Series([], dtype=pl.Utf8),
+                'break_even_times': pl.Series([], dtype=pl.List(pl.Utf8))
             })
             
         
 
 
-'''start_time = datetime.strptime(f"2025-05-29 17:31:00", '%Y-%m-%d %H:%M:%S')
+'''start_time = datetime.strptime(f"2025-05-12 20:05:00", '%Y-%m-%d %H:%M:%S')
 
 strategies_data = {
     'entries': "",
     'max_active_positions': 1,
-    'width': 10,
-    'offset': -10,
+    'width': 5,
+    'offset': 0,
     'stop_loss_type': 'expire',
     'take_profit_level': 0.1,
     'active_positions': 0
@@ -568,8 +588,8 @@ strategies_data = {
 
 right='p'
 
-sell_leg = 5905
-buy_leg = 5895
+sell_leg = 5835
+buy_leg = 5830
 
 spx_price = 5914.54
 eod_spx_price = 5908.73
@@ -583,3 +603,9 @@ if right == 'p':
     p = PutCreditSpread()
     p_data = p.get_spread_data(spx_price, eod_spx_price, start_time, strategies_data, 0.1, 1.5, sell_leg, buy_leg)
     print(p_data)'''
+
+
+
+'''
+put_spread,5.0,0.0,expire,0.1,5835.0;5830.0,-1045.0,-545.0,2025-05-12 20:05:00,5.45,2025-05-12 20:05:00,5.45,-546.5,take_profit,close,5840.45,2025-05-12 20:05:00,2025-05-12 20:05:00;2025-05-12 20:06:00;2025-05-12 20:07:00;2025-05-12 20:08:00;2025-05-12 20:09:00;2025-05-12 20:10:00;2025-05-12 20:11:00;2025-05-12 20:12:00;2025-05-12 20:13:00;2025-05-12 20:14:00;2025-05-12 20:15:00;2025-05-12 20:16:00;2025-05-12 20:17:00;2025-05-12 20:18:00;2025-05-12 20:19:00;2025-05-12 20:20:00;2025-05-12 20:21:00;2025-05-12 20:22:00;2025-05-12 20:23:00;2025-05-12 20:24:00;2025-05-12 20:25:00;2025-05-12 20:26:00;2025-05-12 20:27:00;2025-05-12 20:28:00;2025-05-12 20:29:00;2025-05-12 20:30:00;2025-05-12 20:31:00;2025-05-12 20:32:00;2025-05-12 20:33:00;2025-05-12 20:34:00;2025-05-12 20:35:00;2025-05-12 20:36:00;2025-05-12 20:37:00;2025-05-12 20:38:00;2025-05-12 20:39:00;2025-05-12 20:40:00;2025-05-12 20:41:00;2025-05-12 20:42:00;2025-05-12 20:43:00;2025-05-12 20:44:00;2025-05-12 20:45:00;2025-05-12 20:46:00;2025-05-12 20:47:00;2025-05-12 20:48:00;2025-05-12 20:49:00;2025-05-12 20:50:00;2025-05-12 20:51:00;2025-05-12 20:52:00;2025-05-12 20:53:00;2025-05-12 20:54:00;2025-05-12 20:55:00;2025-05-12 20:56:00;2025-05-12 20:57:00;2025-05-12 20:58:00;2025-05-12 20:59:00;2025-05-12 21:00:00;2025-05-12 21:01:00;2025-05-12 21:02:00;2025-05-12 21:03:00;2025-05-12 21:04:00;2025-05-12 21:05:00;2025-05-12 21:06:00;2025-05-12 21:07:00;2025-05-12 21:08:00;2025-05-12 21:09:00;2025-05-12 21:10:00;2025-05-12 21:11:00;2025-05-12 21:12:00;2025-05-12 21:13:00;2025-05-12 21:14:00;2025-05-12 21:15:00;2025-05-12 21:16:00;2025-05-12 21:17:00;2025-05-12 21:18:00;2025-05-12 21:19:00;2025-05-12 21:20:00;2025-05-12 21:21:00;2025-05-12 21:22:00;2025-05-12 21:23:00;2025-05-12 21:24:00;2025-05-12 21:25:00;2025-05-12 21:26:00;2025-05-12 21:27:00;2025-05-12 21:28:00;2025-05-12 21:29:00;2025-05-12 21:30:00;2025-05-12 21:31:00;2025-05-12 21:32:00;2025-05-12 21:33:00;2025-05-12 21:34:00;2025-05-12 21:35:00;2025-05-12 21:36:00;2025-05-12 21:37:00;2025-05-12 21:38:00;2025-05-12 21:39:00;2025-05-12 21:40:00;2025-05-12 21:41:00;2025-05-12 21:42:00;2025-05-12 21:43:00;2025-05-12 21:44:00;2025-05-12 21:45:00;2025-05-12 21:46:00;2025-05-12 21:47:00;2025-05-12 21:48:00;2025-05-12 21:49:00;2025-05-12 21:50:00;2025-05-12 21:51:00;2025-05-12 21:52:00;2025-05-12 21:53:00;2025-05-12 21:54:00;2025-05-12 21:55:00;2025-05-12 21:56:00;2025-05-12 21:57:00;2025-05-12 21:58:00
+'''

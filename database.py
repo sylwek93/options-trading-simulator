@@ -37,7 +37,7 @@ class QueryConditions:
         self.base_query = """
         SELECT DISTINCT m.date_time, m.spx_price
         FROM metrics m
-        JOIN gamma_levels g ON m.date_time = g.date_time
+        LEFT JOIN gamma_levels g ON m.date_time = g.date_time
         WHERE m.date_time BETWEEN ? AND ?
         AND time(m.date_time) BETWEEN ? AND ?
         {}
